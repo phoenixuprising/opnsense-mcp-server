@@ -347,7 +347,19 @@ ENDPOINT_REGISTRY: dict[str, tuple[str, str]] = {
         "dyndns/service/reconfigure",
         "dyndns/service/reconfigure",
     ),
-    # dnsmasq DHCP ranges and service
+    # dnsmasq DHCP options, ranges and service
+    "dnsmasq.settings.search_option": (
+        "dnsmasq/settings/searchOption",
+        "dnsmasq/settings/search_option",
+    ),
+    "dnsmasq.settings.get_option": (
+        "dnsmasq/settings/getOption",
+        "dnsmasq/settings/get_option",
+    ),
+    "dnsmasq.settings.set_option": (
+        "dnsmasq/settings/setOption",
+        "dnsmasq/settings/set_option",
+    ),
     "dnsmasq.settings.search_range": (
         "dnsmasq/settings/searchRange",
         "dnsmasq/settings/search_range",

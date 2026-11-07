@@ -68,6 +68,9 @@ class TestToolRegistration:
             "opn_list_kea_leases",
             "opn_list_dnsmasq_leases",
             "opn_list_dnsmasq_ranges",
+            "opn_list_dnsmasq_options",
+            "opn_get_dnsmasq_option",
+            "opn_update_dnsmasq_option",
             "opn_add_dnsmasq_range",
             "opn_reconfigure_dnsmasq",
             "opn_update_dnsmasq_range",
@@ -111,4 +114,4 @@ class TestToolRegistration:
         from opnsense_mcp.server import mcp
 
         tools = await mcp.list_tools()
-        assert len(tools) == 81, f"Expected 81 tools, got {len(tools)}"
+        assert len(tools) == 84, f"Expected 84 tools, got {len(tools)}"

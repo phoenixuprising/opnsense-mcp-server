@@ -1,11 +1,13 @@
-"""DHCP tools — ISC, Kea, and dnsmasq lease listing and range management."""
+"""DHCP tools — ISC, Kea, and dnsmasq leases, ranges, and options."""
 
 from __future__ import annotations
 
 from typing import Any
+from uuid import UUID
 
 from fastmcp import Context
 
+from opnsense_mcp.api_client import OPNsenseAPIError
 from opnsense_mcp.server import get_api, get_config_cache, mcp
 
 
@@ -63,6 +65,124 @@ async def opn_list_dnsmasq_leases(
         "dnsmasq.leases.search",
         {"current": 1, "rowCount": min(limit, 500), "searchPhrase": search},
     )
+
+
+def _option_uuid(value: str) -> str | None:
+    try:
+        return str(UUID(value))
+    except ValueError:
+        return None
+
+
+@mcp.tool()
+async def opn_list_dnsmasq_options(
+    ctx: Context,
+    search: str = "",
+    limit: int = 50,
+) -> dict[str, Any]:
+    """List dnsmasq DHCPv4/DHCPv6 options and their UUIDs.
+
+    Use this to find advertised DNS servers (DHCPv4 option 6 or DHCPv6
+    option 23), gateways, and interface/tag-scoped options before editing.
+    Search results may contain display labels; use opn_get_dnsmasq_option
+    for the full option definition. Limit must be positive and is capped at 500.
+    Returns: dict with 'rows' and 'rowCount'.
+    """
+    if limit <= 0:
+        return {"error": "limit must be positive"}
+    return await get_api(ctx).post(
+        "dnsmasq.settings.search_option",
+        {"current": 1, "rowCount": min(limit, 500), "searchPhrase": search},
+    )
+
+
+@mcp.tool()
+async def opn_get_dnsmasq_option(ctx: Context, uuid: str) -> dict[str, Any]:
+    """Get an existing dnsmasq DHCP option by UUID without changing it.
+
+    Use opn_list_dnsmasq_options to find its UUID. The 'option' object
+    includes type, DHCPv4/DHCPv6 option codes, value, interface, tags,
+    force flag, and description. Select fields may use selected-item maps.
+    """
+    canonical_uuid = _option_uuid(uuid)
+    if canonical_uuid is None:
+        return {"error": "uuid must be a valid DHCP option UUID"}
+    return await get_api(ctx).get("dnsmasq.settings.get_option", path_suffix=canonical_uuid)
+
+
+@mcp.tool()
+async def opn_update_dnsmasq_option(
+    ctx: Context,
+    uuid: str,
+    value: str,
+    expected_value: str | None = None,
+) -> dict[str, Any]:
+    """Update only an existing dnsmasq DHCP set-option's value and apply.
+
+    Use this to change advertised DNS servers, including a later Pi-hole
+    cutover, without changing the option code, interface, tags, force flag,
+    or description. DHCP match rules are deliberately unsupported.
+    First inspect with opn_list_dnsmasq_options and opn_get_dnsmasq_option.
+    Optionally supply expected_value to refuse an update if the current
+    value differs; this is a preflight check, not an atomic compare-and-swap.
+
+    Requires OPNSENSE_ALLOW_WRITES=true. A successful save reconfigures
+    dnsmasq immediately; existing clients need a DHCP renewal. There is no
+    automatic rollback. If applying fails, the saved change remains pending.
+    Returns: result, uuid, reconfigure_status, and applied; failures include error.
+    """
+    api = get_api(ctx)
+    api.require_writes()
+    canonical_uuid = _option_uuid(uuid)
+    if canonical_uuid is None:
+        return {"error": "uuid must be a valid DHCP option UUID"}
+    if not value.strip() or any(ord(char) < 32 or ord(char) == 127 for char in value):
+        return {"error": "value must be nonempty and contain no control characters"}
+
+    current = await api.get("dnsmasq.settings.get_option", path_suffix=canonical_uuid)
+    option = current.get("option")
+    if not isinstance(option, dict):
+        return {"error": "DHCP option not found or response is invalid", "uuid": canonical_uuid}
+    option_type = option.get("type")
+    if isinstance(option_type, dict):
+        selected = [
+            key for key, item in option_type.items() if isinstance(item, dict) and item.get("selected") in (1, "1")
+        ]
+        option_type = selected[0] if len(selected) == 1 else None
+    if option_type != "set":
+        return {"error": "Only existing DHCP set options can be updated", "uuid": canonical_uuid}
+    if expected_value is not None and option.get("value") != expected_value:
+        return {"error": "Current value differs from expected_value; inspect before retrying", "uuid": canonical_uuid}
+
+    result = await api.post(
+        "dnsmasq.settings.set_option",
+        {"option": {"type": "set", "value": value}},
+        path_suffix=canonical_uuid,
+    )
+    if result.get("result") != "saved":
+        return {**result, "uuid": canonical_uuid, "applied": False, "error": "DHCP option was not saved"}
+
+    get_config_cache(ctx).invalidate()
+    try:
+        reconfigure_result = await api.post("dnsmasq.service.reconfigure")
+    except OPNsenseAPIError:
+        return {
+            "result": "saved",
+            "uuid": canonical_uuid,
+            "applied": False,
+            "reconfigure_status": "unknown",
+            "error": "DHCP option saved but applying failed; inspect dnsmasq status before retrying",
+        }
+    status = reconfigure_result.get("status", "unknown")
+    response: dict[str, Any] = {
+        "result": "saved",
+        "uuid": canonical_uuid,
+        "reconfigure_status": status,
+        "applied": status == "ok",
+    }
+    if not response["applied"]:
+        response["error"] = "DHCP option saved but dnsmasq reconfiguration did not succeed; change remains pending"
+    return response
 
 
 # --- Dnsmasq DHCP Range Management ---

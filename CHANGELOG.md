@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Dnsmasq DHCP option listing, inspection and value-only updates for existing set
+  options, including IPv4/IPv6 DNS-server advertisements. Updates preserve option
+  scope, enforce the write guard, optionally check the expected current value, and
+  apply only after a successful save. Apply failures report the saved state without
+  claiming success; there is no automatic rollback.
+
 ## [0.4.2] - 2026-11-03
 
 ### Security

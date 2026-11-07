@@ -2,7 +2,7 @@
 
 A secure [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server for managing OPNsense firewalls through AI assistants like [Claude Code](https://docs.anthropic.com/en/docs/claude-code), Cursor, and other MCP-compatible tools.
 
-**81 tools** across 10 domains: system, firewall, network, DNS, DHCP, VPN, HAProxy, services, diagnostics, and security.
+**84 tools** across 10 domains: system, firewall, network, DNS, DHCP, VPN, HAProxy, services, diagnostics, and security.
 
 ## Requirements
 
@@ -139,7 +139,7 @@ Add to your Cursor MCP settings (Settings > MCP):
 
 **Custom ports:** If your OPNsense web GUI runs on a non-standard port (e.g., 10443), include it in the URL: `https://192.168.1.1:10443/api`
 
-## Available Tools (81)
+## Available Tools (84)
 
 ### System (7 tools)
 
@@ -209,7 +209,7 @@ Add to your Cursor MCP settings (Settings > MCP):
 | `opn_update_dns_override` | Update an Unbound DNS host override and apply immediately. Params: `uuid`, `hostname`, `domain`, `server`, `description`, `enabled` | Yes |
 | `opn_delete_dns_override` | Delete an Unbound DNS host override and apply immediately. Params: `uuid` | Yes |
 
-### DHCP (8 tools)
+### DHCP (11 tools)
 
 | Tool | Description | Writes |
 | --- | --- | --- |
@@ -221,6 +221,28 @@ Add to your Cursor MCP settings (Settings > MCP):
 | `opn_reconfigure_dnsmasq` | Apply pending dnsmasq DNS/DHCP configuration changes | Yes |
 | `opn_update_dnsmasq_range` | Update a DHCP range (addresses, lease time, RA config) and apply. Params: `uuid`, `interface`, `start_addr`, `end_addr`, `prefix_len`, `ra_mode`, `lease_time`, `description`, `enabled` | Yes |
 | `opn_delete_dnsmasq_range` | Delete a DHCP range by UUID and apply. Params: `uuid` | Yes |
+| `opn_list_dnsmasq_options` | List DHCPv4/DHCPv6 options and UUIDs, including DNS-server advertisements. Params: `search`, `limit` | No |
+| `opn_get_dnsmasq_option` | Inspect an existing DHCP option, including interface, tags and selection metadata. Params: `uuid` | No |
+| `opn_update_dnsmasq_option` | Update only an existing set-option's value and apply. Params: `uuid`, `value`, `expected_value` | Yes |
+
+To change advertised DNS servers, list options and inspect the UUID for the intended
+interface/tag scope. DHCPv4 DNS servers use option **6**; DHCPv6 DNS servers use
+option **23**. Pass the new comma-separated address list as `value`, optionally
+with the inspected `expected_value` to detect a stale preflight read. That check
+is not atomic. The update preserves the option code, interface, tags, force flag
+and description; it does not create options or modify DHCP match rules.
+
+Writes require `OPNSENSE_ALLOW_WRITES=true`. Only a successful save triggers
+Dnsmasq reconfiguration, and the response reports whether applying succeeded.
+There is **no automatic rollback**: record the original value first. If applying
+fails, the saved change may remain pending; inspect before retrying. Existing
+clients need a DHCP renewal. This does not change separate Router Advertisement
+(RDNSS) settings, client-specific DNS overrides, or VPN DNS policy.
+
+The tool uses OPNsense's [Dnsmasq settings controller](https://github.com/opnsense/core/blob/master/src/opnsense/mvc/app/controllers/OPNsense/Dnsmasq/Api/SettingsController.php)
+(`searchOption`, `getOption`, `setOption`, with snake_case variants selected by the
+API client). The value update includes the existing `set` type required by the
+controller without resubmitting unrelated selection fields.
 
 ### VPN (3 tools)
 
